@@ -225,7 +225,7 @@ class GitAuthHelper {
       } else if (this.settings.submoduleSshKey) {
         // Configure core.sshCommand
         await this.git.submoduleForeach(
-          `git config --local '${SUBMODULE_SSH_COMMAND_KEY}' '${this.submoduleSshCommand}'`,
+          `git config --local '${SSH_COMMAND_KEY}' '${this.submoduleSshCommand}'`,
           this.settings.nestedSubmodules
         )
       } else {
