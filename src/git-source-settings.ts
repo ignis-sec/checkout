@@ -85,6 +85,11 @@ export interface IGitSourceSettings {
   sshKey: string
 
   /**
+   * The SSH key to configure for submodules
+   */
+  submoduleSshKey: string
+
+  /**
    * Additional SSH known hosts
    */
   sshKnownHosts: string

@@ -34,6 +34,11 @@ inputs:
 
       [Learn more about creating and using
       encrypted secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets)
+  submodule-ssh-key:
+    description: >
+      SSH key used to fetch submodules. The SSH key is configured with the local
+      git config, which enables your scripts to run authenticated git commands.
+      The post-job step removes the SSH key.
   ssh-known-hosts:
     description: >
       Known hosts in addition to the user and global host key database. The public

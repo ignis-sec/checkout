@@ -84,6 +84,11 @@ Please refer to the [release page](https://github.com/actions/checkout/releases/
     # [Learn more about creating and using encrypted secrets](https://help.github.com/en/actions/automating-your-workflow-with-github-actions/creating-and-using-encrypted-secrets)
     ssh-key: ''
 
+    # SSH key used to fetch submodules. The SSH key is configured with the local git
+    # config, which enables your scripts to run authenticated git commands. The
+    # post-job step removes the SSH key.
+    submodule-ssh-key: ''
+
     # Known hosts in addition to the user and global host key database. The public SSH
     # keys for a host may be obtained using the utility `ssh-keyscan`. For example,
     # `ssh-keyscan github.com`. The public key for github.com is always implicitly
