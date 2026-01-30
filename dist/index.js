@@ -152,6 +152,7 @@ const urlHelper = __importStar(__nccwpck_require__(9437));
 const uuid_1 = __nccwpck_require__(5840);
 const IS_WINDOWS = process.platform === 'win32';
 const SSH_COMMAND_KEY = 'core.sshCommand';
+const SUBMODULE_SSH_COMMAND_KEY = 'submodule.' + SSH_COMMAND_KEY;
 function createAuthHelper(git, settings) {
     return new GitAuthHelper(git, settings);
 }
@@ -159,7 +160,9 @@ class GitAuthHelper {
     constructor(gitCommandManager, gitSourceSettings) {
         this.insteadOfValues = [];
         this.sshCommand = '';
+        this.submoduleSshCommand = '';
         this.sshKeyPath = '';
+        this.submoduleSshKeyPath = '';
         this.sshKnownHostsPath = '';
         this.temporaryHomePath = '';
         this.credentialsConfigPath = ''; // Path to separate credentials config file in RUNNER_TEMP
@@ -184,7 +187,8 @@ class GitAuthHelper {
             // Remove possible previous values
             yield this.removeAuth();
             // Configure new values
-            yield this.configureSsh();
+            yield this.configureSsh(false);
+            yield this.configureSsh(true);
             yield this.configureToken();
         });
     }
@@ -256,7 +260,9 @@ class GitAuthHelper {
         return __awaiter(this, void 0, void 0, function* () {
             // Remove possible previous HTTPS instead of SSH
             yield this.removeSubmoduleGitConfig(this.insteadOfKey);
-            if (this.settings.persistCredentials) {
+            core.info('Configuring git auth for submodules');
+            core.info(this.settings.submoduleSshKey);
+            if (this.settings.persistCredentials || this.settings.submoduleSshKey) {
                 // Get the credentials config file path in RUNNER_TEMP
                 const credentialsConfigPath = this.getCredentialsConfigPath();
                 // Container credentials config path
@@ -288,6 +294,10 @@ class GitAuthHelper {
                     // Configure core.sshCommand
                     yield this.git.submoduleForeach(`git config --local '${SSH_COMMAND_KEY}' '${this.sshCommand}'`, this.settings.nestedSubmodules);
                 }
+                else if (this.settings.submoduleSshKey) {
+                    // Configure core.sshCommand
+                    yield this.git.submoduleForeach(`git config --local '${SSH_COMMAND_KEY}' '${this.submoduleSshCommand}'`, this.settings.nestedSubmodules);
+                }
                 else {
                     // Configure HTTPS instead of SSH
                     for (const insteadOfValue of this.insteadOfValues) {
@@ -318,23 +328,30 @@ class GitAuthHelper {
      * and setting up the GIT_SSH_COMMAND environment variable.
      */
     configureSsh() {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!this.settings.sshKey) {
+        return __awaiter(this, arguments, void 0, function* (is_submodule = false) {
+            let sshKey = (is_submodule) ? this.settings.submoduleSshKey : this.settings.sshKey;
+            if (!sshKey) {
                 return;
             }
             // Write key
             const runnerTemp = process.env['RUNNER_TEMP'] || '';
             assert.ok(runnerTemp, 'RUNNER_TEMP is not defined');
             const uniqueId = (0, uuid_1.v4)();
-            this.sshKeyPath = path.join(runnerTemp, uniqueId);
-            stateHelper.setSshKeyPath(this.sshKeyPath);
+            if (is_submodule) {
+                this.sshKeyPath = path.join(runnerTemp, uniqueId);
+            }
+            else {
+                this.submoduleSshKeyPath = path.join(runnerTemp, uniqueId);
+            }
+            const sshKeyPath = (is_submodule) ? this.sshKeyPath : this.submoduleSshKeyPath;
+            stateHelper.setSshKeyPath(sshKeyPath);
             yield fs.promises.mkdir(runnerTemp, { recursive: true });
-            yield fs.promises.writeFile(this.sshKeyPath, this.settings.sshKey.trim() + '\n', { mode: 0o600 });
+            yield fs.promises.writeFile(sshKeyPath, sshKey.trim() + '\n', { mode: 0o600 });
             // Remove inherited permissions on Windows
             if (IS_WINDOWS) {
                 const icacls = yield io.which('icacls.exe');
-                yield exec.exec(`"${icacls}" "${this.sshKeyPath}" /grant:r "${process.env['USERDOMAIN']}\\${process.env['USERNAME']}:F"`);
-                yield exec.exec(`"${icacls}" "${this.sshKeyPath}" /inheritance:r`);
+                yield exec.exec(`"${icacls}" "${sshKeyPath}" /grant:r "${process.env['USERDOMAIN']}\\${process.env['USERNAME']}:F"`);
+                yield exec.exec(`"${icacls}" "${sshKeyPath}" /inheritance:r`);
             }
             // Write known hosts
             const userKnownHostsPath = path.join(os.homedir(), '.ssh', 'known_hosts');
@@ -360,16 +377,23 @@ class GitAuthHelper {
             yield fs.promises.writeFile(this.sshKnownHostsPath, knownHosts);
             // Configure GIT_SSH_COMMAND
             const sshPath = yield io.which('ssh', true);
-            this.sshCommand = `"${sshPath}" -i "$RUNNER_TEMP/${path.basename(this.sshKeyPath)}"`;
+            let sshCommand = `"${sshPath}" -i "$RUNNER_TEMP/${path.basename(this.sshKeyPath)}"`;
             if (this.settings.sshStrict) {
-                this.sshCommand += ' -o StrictHostKeyChecking=yes -o CheckHostIP=no';
+                sshCommand += ' -o StrictHostKeyChecking=yes -o CheckHostIP=no';
             }
-            this.sshCommand += ` -o "UserKnownHostsFile=$RUNNER_TEMP/${path.basename(this.sshKnownHostsPath)}"`;
-            core.info(`Temporarily overriding GIT_SSH_COMMAND=${this.sshCommand}`);
-            this.git.setEnvironmentVariable('GIT_SSH_COMMAND', this.sshCommand);
+            sshCommand += ` -o "UserKnownHostsFile=$RUNNER_TEMP/${path.basename(this.sshKnownHostsPath)}"`;
+            core.info(`Temporarily overriding GIT_SSH_COMMAND=${sshCommand}`);
+            if (is_submodule) {
+                this.submoduleSshCommand = sshCommand;
+                this.git.setEnvironmentVariable('GIT_SUBMODULE_SSH_COMMAND', this.submoduleSshCommand);
+            }
+            else {
+                this.sshCommand = sshCommand;
+                this.git.setEnvironmentVariable('GIT_SSH_COMMAND', this.sshCommand);
+            }
             // Configure core.sshCommand
             if (this.settings.persistCredentials) {
-                yield this.git.config(SSH_COMMAND_KEY, this.sshCommand);
+                yield this.git.config(SSH_COMMAND_KEY, sshCommand);
             }
         });
     }
@@ -1600,6 +1624,7 @@ function getSource(settings) {
                 // Temporarily override global config
                 core.startGroup('Setting up auth for fetching submodules');
                 yield authHelper.configureGlobalAuth();
+                yield authHelper.configureSubmoduleAuth();
                 core.endGroup();
                 // Checkout submodules
                 core.startGroup('Fetching submodules');
@@ -2079,6 +2104,7 @@ function getInputs() {
         result.authToken = core.getInput('token', { required: true });
         // SSH
         result.sshKey = core.getInput('ssh-key');
+        result.submoduleSshKey = core.getInput('submodule-ssh-key');
         result.sshKnownHosts = core.getInput('ssh-known-hosts');
         result.sshStrict =
             (core.getInput('ssh-strict') || 'true').toUpperCase() === 'TRUE';
