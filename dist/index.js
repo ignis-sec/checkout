@@ -296,7 +296,7 @@ class GitAuthHelper {
                 }
                 else if (this.settings.submoduleSshKey) {
                     // Configure core.sshCommand
-                    yield this.git.submoduleForeach(`git config --local '${SSH_COMMAND_KEY}' '${this.submoduleSshCommand}'`, this.settings.nestedSubmodules);
+                    yield this.git.submoduleForeach(`git config --local '${SUBMODULE_SSH_COMMAND_KEY}' '${this.submoduleSshCommand}'`, this.settings.nestedSubmodules);
                 }
                 else {
                     // Configure HTTPS instead of SSH
@@ -393,7 +393,8 @@ class GitAuthHelper {
             }
             // Configure core.sshCommand
             if (this.settings.persistCredentials) {
-                yield this.git.config(SSH_COMMAND_KEY, sshCommand);
+                yield this.git.config(SSH_COMMAND_KEY, this.sshCommand);
+                yield this.git.config(SUBMODULE_SSH_COMMAND_KEY, this.submoduleSshCommand);
             }
         });
     }
