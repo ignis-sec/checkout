@@ -162,7 +162,7 @@ class GitAuthHelper {
     // Remove possible previous HTTPS instead of SSH
     await this.removeSubmoduleGitConfig(this.insteadOfKey)
 
-    if (this.settings.persistCredentials) {
+    if (this.settings.persistCredentials || this.settings.submoduleSshKey) {
       // Get the credentials config file path in RUNNER_TEMP
       const credentialsConfigPath = this.getCredentialsConfigPath()
 
