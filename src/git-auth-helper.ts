@@ -161,7 +161,8 @@ class GitAuthHelper {
   async configureSubmoduleAuth(): Promise<void> {
     // Remove possible previous HTTPS instead of SSH
     await this.removeSubmoduleGitConfig(this.insteadOfKey)
-
+    core.info('Configuring git auth for submodules')
+    core.info(this.settings.submoduleSshKey)
     if (this.settings.persistCredentials || this.settings.submoduleSshKey) {
       // Get the credentials config file path in RUNNER_TEMP
       const credentialsConfigPath = this.getCredentialsConfigPath()
