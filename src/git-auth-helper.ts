@@ -14,6 +14,7 @@ import {IGitSourceSettings} from './git-source-settings'
 
 const IS_WINDOWS = process.platform === 'win32'
 const SSH_COMMAND_KEY = 'core.sshCommand'
+const SUBMODULE_SSH_COMMAND_KEY = 'submodule.' + SSH_COMMAND_KEY
 
 export interface IGitAuthHelper {
   configureAuth(): Promise<void>
@@ -40,7 +41,9 @@ class GitAuthHelper {
   private readonly insteadOfKey: string
   private readonly insteadOfValues: string[] = []
   private sshCommand = ''
+  private submoduleSshCommand = ''
   private sshKeyPath = ''
+  private submoduleSshKeyPath = ''
   private sshKnownHostsPath = ''
   private temporaryHomePath = ''
   private credentialsConfigPath = '' // Path to separate credentials config file in RUNNER_TEMP
@@ -78,7 +81,8 @@ class GitAuthHelper {
     await this.removeAuth()
 
     // Configure new values
-    await this.configureSsh()
+    await this.configureSsh(false)
+    await this.configureSsh(true)
     await this.configureToken()
   }
 
@@ -218,6 +222,12 @@ class GitAuthHelper {
           `git config --local '${SSH_COMMAND_KEY}' '${this.sshCommand}'`,
           this.settings.nestedSubmodules
         )
+      } else if (this.settings.submoduleSshKey) {
+        // Configure core.sshCommand
+        await this.git.submoduleForeach(
+          `git config --local '${SUBMODULE_SSH_COMMAND_KEY}' '${this.submoduleSshCommand}'`,
+          this.settings.nestedSubmodules
+        )
       } else {
         // Configure HTTPS instead of SSH
         for (const insteadOfValue of this.insteadOfValues) {
@@ -247,8 +257,9 @@ class GitAuthHelper {
    * Configures SSH authentication by writing the SSH key and known hosts,
    * and setting up the GIT_SSH_COMMAND environment variable.
    */
-  private async configureSsh(): Promise<void> {
-    if (!this.settings.sshKey) {
+  private async configureSsh(is_submodule: boolean=false): Promise<void> {
+    let sshKey = (is_submodule) ? this.settings.submoduleSshKey : this.settings.sshKey
+    if (!sshKey) {
       return
     }
 
@@ -256,12 +267,17 @@ class GitAuthHelper {
     const runnerTemp = process.env['RUNNER_TEMP'] || ''
     assert.ok(runnerTemp, 'RUNNER_TEMP is not defined')
     const uniqueId = uuid()
-    this.sshKeyPath = path.join(runnerTemp, uniqueId)
-    stateHelper.setSshKeyPath(this.sshKeyPath)
+    if (is_submodule) {
+      this.sshKeyPath = path.join(runnerTemp, uniqueId)
+    } else {
+      this.submoduleSshKeyPath = path.join(runnerTemp, uniqueId)
+    }
+    const sshKeyPath = (is_submodule) ? this.sshKeyPath : this.submoduleSshKeyPath
+    stateHelper.setSshKeyPath(sshKeyPath)
     await fs.promises.mkdir(runnerTemp, {recursive: true})
     await fs.promises.writeFile(
-      this.sshKeyPath,
-      this.settings.sshKey.trim() + '\n',
+      sshKeyPath,
+      sshKey.trim() + '\n',
       {mode: 0o600}
     )
 
@@ -269,9 +285,9 @@ class GitAuthHelper {
     if (IS_WINDOWS) {
       const icacls = await io.which('icacls.exe')
       await exec.exec(
-        `"${icacls}" "${this.sshKeyPath}" /grant:r "${process.env['USERDOMAIN']}\\${process.env['USERNAME']}:F"`
+        `"${icacls}" "${sshKeyPath}" /grant:r "${process.env['USERDOMAIN']}\\${process.env['USERNAME']}:F"`
       )
-      await exec.exec(`"${icacls}" "${this.sshKeyPath}" /inheritance:r`)
+      await exec.exec(`"${icacls}" "${sshKeyPath}" /inheritance:r`)
     }
 
     // Write known hosts
@@ -300,21 +316,31 @@ class GitAuthHelper {
 
     // Configure GIT_SSH_COMMAND
     const sshPath = await io.which('ssh', true)
-    this.sshCommand = `"${sshPath}" -i "$RUNNER_TEMP/${path.basename(
+
+
+    let sshCommand = `"${sshPath}" -i "$RUNNER_TEMP/${path.basename(
       this.sshKeyPath
     )}"`
+    
     if (this.settings.sshStrict) {
-      this.sshCommand += ' -o StrictHostKeyChecking=yes -o CheckHostIP=no'
+      sshCommand += ' -o StrictHostKeyChecking=yes -o CheckHostIP=no'
     }
-    this.sshCommand += ` -o "UserKnownHostsFile=$RUNNER_TEMP/${path.basename(
+    sshCommand += ` -o "UserKnownHostsFile=$RUNNER_TEMP/${path.basename(
       this.sshKnownHostsPath
     )}"`
-    core.info(`Temporarily overriding GIT_SSH_COMMAND=${this.sshCommand}`)
-    this.git.setEnvironmentVariable('GIT_SSH_COMMAND', this.sshCommand)
+    core.info(`Temporarily overriding GIT_SSH_COMMAND=${sshCommand}`)
+
+    if(is_submodule){
+      this.submoduleSshCommand = sshCommand
+      this.git.setEnvironmentVariable('GIT_SUBMODULE_SSH_COMMAND', this.submoduleSshCommand)
+    } else {
+      this.sshCommand = sshCommand
+      this.git.setEnvironmentVariable('GIT_SSH_COMMAND', this.sshCommand)
+    }
 
     // Configure core.sshCommand
     if (this.settings.persistCredentials) {
-      await this.git.config(SSH_COMMAND_KEY, this.sshCommand)
+      await this.git.config(SSH_COMMAND_KEY, sshCommand)
     }
   }
 
